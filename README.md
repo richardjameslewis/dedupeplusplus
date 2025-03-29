@@ -35,6 +35,4 @@ dedupe++ [options] <directory>
 
 Options:
 - `--help`: Show help message
-- `--recursive`: Scan directories recursively (default: true)
-- `--min-size <bytes>`: Minimum file size to consider (default: 0)
-- `--max-size <bytes>`: Maximum file size to consider (default: unlimited) 
+- `--no-recursive`: Don't scan directories recursively (default: recursive)

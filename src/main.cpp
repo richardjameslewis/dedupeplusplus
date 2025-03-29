@@ -9,7 +9,7 @@ void print_help() {
     std::cout << "Usage: dedupe++ [options] <directory>\n\n"
               << "Options:\n"
               << "  --help              Show this help message\n"
-              << "  --recursive         Scan directories recursively (default: true)\n";
+              << "  --no-recursive      Do not scan directories recursively (default: recursive)\n";
 }
 
 int main(int argc, char* argv[]) {
@@ -18,7 +18,7 @@ int main(int argc, char* argv[]) {
         return 1;
     }
 
-    bool recursive = true;
+    bool recursive = true;  // Default to recursive
     std::filesystem::path directory;
 
     for (int i = 1; i < argc; ++i) {
@@ -28,8 +28,8 @@ int main(int argc, char* argv[]) {
             print_help();
             return 0;
         }
-        else if (arg == "--recursive") {
-            recursive = true;
+        else if (arg == "--no-recursive") {
+            recursive = false;
         }
         else {
             directory = arg;
