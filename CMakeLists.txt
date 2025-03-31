@@ -4,32 +4,79 @@ project(dedupe++ VERSION 1.0.0 LANGUAGES CXX)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
+set(CMAKE_AUTOMOC ON)
+set(CMAKE_AUTORCC ON)
+set(CMAKE_AUTOUIC ON)
 
-# Find OpenSSL package
+# Find required packages
 find_package(OpenSSL REQUIRED)
+find_package(Qt6 COMPONENTS Core Widgets Concurrent REQUIRED)
 
-# Add source files
-set(SOURCES
-    src/main.cpp
-    src/scanner.cpp
-    src/hasher.cpp
+# Core library
+add_library(dedupe_core
+    core/scanner.cpp
+    core/hasher.cpp
 )
 
-# Add header files
-set(HEADERS
-    include/scanner.hpp
-    include/hasher.hpp
-    include/progress.hpp
+target_include_directories(dedupe_core
+    PUBLIC
+        ${CMAKE_CURRENT_SOURCE_DIR}/core
 )
 
-# Create executable
-add_executable(dedupe++ ${SOURCES} ${HEADERS})
+target_link_libraries(dedupe_core
+    PUBLIC
+        OpenSSL::SSL
+        OpenSSL::Crypto
+)
 
-# Include directories
-target_include_directories(dedupe++ PRIVATE include)
+# Interface library
+add_library(dedupe_interface
+    interface/scanner_impl.cpp
+)
 
-# Link against required libraries
-target_link_libraries(dedupe++ PRIVATE 
-    OpenSSL::SSL
-    OpenSSL::Crypto
+target_include_directories(dedupe_interface
+    PUBLIC
+        ${CMAKE_CURRENT_SOURCE_DIR}/interface
+        ${CMAKE_CURRENT_SOURCE_DIR}/core
+)
+
+target_link_libraries(dedupe_interface
+    PUBLIC
+        dedupe_core
+)
+
+# GUI application
+add_executable(dedupe_gui
+    ui/main.cpp
+    ui/mainwindow.cpp
+    ui/mainwindow.hpp
+)
+
+target_include_directories(dedupe_gui
+    PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/ui
+        ${CMAKE_CURRENT_SOURCE_DIR}/interface
+)
+
+target_link_libraries(dedupe_gui
+    PRIVATE
+        dedupe_interface
+        Qt6::Core
+        Qt6::Widgets
+        Qt6::Concurrent
+)
+
+# CLI application
+add_executable(dedupe_cli
+    core/main.cpp
+)
+
+target_include_directories(dedupe_cli
+    PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/core
+)
+
+target_link_libraries(dedupe_cli
+    PRIVATE
+        dedupe_core
 ) 
