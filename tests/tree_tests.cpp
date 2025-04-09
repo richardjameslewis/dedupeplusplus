@@ -1,10 +1,8 @@
 #include <gtest/gtest.h>
 #include "../core/nested_tree.hpp"
-#include "../core/filesystem_tree.hpp"
-#include <filesystem>
 #include <string>
 #include <vector>
-#include <fstream>
+#include <iostream>
 
 namespace dedupe {
 namespace test {
@@ -122,6 +120,7 @@ TEST_F(TreeTest, TreeQueries) {
 //      EXPECT_EQ(values, std::vector<std::string>({"1", "2", "5", "3", "6", "4"}));
 // }
 
+/*
 class FileSystemTreeTest : public ::testing::Test {
 protected:
     void SetUp() override {
@@ -171,6 +170,7 @@ TEST_F(FileSystemTreeTest, CalculateSubtreeSize) {
     uintmax_t totalSize = tree.calculateSubtreeSize(root);
     EXPECT_GT(totalSize, 0);
 }
+*/
 
 } // namespace test
 } // namespace dedupe 

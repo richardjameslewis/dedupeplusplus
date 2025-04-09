@@ -90,6 +90,8 @@ enable_testing()
 # Create test executable
 add_executable(dedupe_tests
     tests/tree_tests.cpp
+    tests/filesystem_tree_test.cpp
+    tests/duplicate_finder_test.cpp
 )
 
 target_link_libraries(dedupe_tests
