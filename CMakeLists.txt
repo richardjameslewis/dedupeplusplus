@@ -11,6 +11,7 @@ set(CMAKE_AUTOUIC ON)
 # Find required packages
 find_package(OpenSSL REQUIRED)
 find_package(Qt6 COMPONENTS Core Widgets Concurrent REQUIRED)
+find_package(GTest CONFIG REQUIRED)
 
 # Core library
 add_library(dedupe_core
@@ -50,6 +51,8 @@ add_executable(dedupe_gui
     ui/main.cpp
     ui/mainwindow.cpp
     ui/mainwindow.hpp
+    ui/filesystem_model.cpp
+    ui/filesystem_model.hpp
 )
 
 target_include_directories(dedupe_gui
@@ -79,4 +82,22 @@ target_include_directories(dedupe_cli
 target_link_libraries(dedupe_cli
     PRIVATE
         dedupe_core
-) 
+)
+
+# Tests
+enable_testing()
+
+# Create test executable
+add_executable(dedupe_tests
+    tests/tree_tests.cpp
+)
+
+target_link_libraries(dedupe_tests
+    PRIVATE
+        dedupe_core
+        GTest::gtest
+        GTest::gtest_main
+)
+
+# Add tests to CTest
+add_test(NAME dedupe_tests COMMAND dedupe_tests) 

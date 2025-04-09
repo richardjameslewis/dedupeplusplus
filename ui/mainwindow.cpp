@@ -8,142 +8,96 @@
 #include <QThread>
 #include <QFuture>
 #include <QtConcurrent>
+#include "../core/filesystem_tree.hpp"
 
-MainWindow::MainWindow(QWidget *parent)
+namespace dedupe {
+
+MainWindow::MainWindow(QWidget* parent)
     : QMainWindow(parent)
-    , isScanning_(false)
+    , centralWidget_(new QWidget(this))
+    , mainLayout_(new QVBoxLayout(centralWidget_))
+    , pathLayout_(new QHBoxLayout())
+    , pathEdit_(new QLineEdit(this))
+    , browseButton_(new QPushButton("Browse...", this))
+    , scanButton_(new QPushButton("Scan", this))
+    , treeView_(new QTreeView(this))
+    , model_(new FileSystemModel(this))
 {
+    setCentralWidget(centralWidget_);
     setupUi();
-    createConnections();
-}
+    
+    // Connect signals
+    connect(browseButton_, &QPushButton::clicked, this, &MainWindow::onBrowseClicked);
+    connect(scanButton_, &QPushButton::clicked, this, &MainWindow::onScanClicked);
+    connect(pathEdit_, &QLineEdit::textChanged, this, &MainWindow::onPathChanged);
+    
+    updatePath("c:\\todo\\peel sessions");
 
-void MainWindow::setupUi() {
-    auto* centralWidget = new QWidget(this);
-    setCentralWidget(centralWidget);
-    auto* layout = new QVBoxLayout(centralWidget);
-
-    // Directory selection
-    auto* dirLayout = new QHBoxLayout();
-    directoryEdit_ = new QLineEdit(this);
-    browseButton_ = new QPushButton("Browse...", this);
-    dirLayout->addWidget(new QLabel("Directory:"));
-    dirLayout->addWidget(directoryEdit_);
-    dirLayout->addWidget(browseButton_);
-    layout->addLayout(dirLayout);
-
-    // Options
-    recursiveCheck_ = new QCheckBox("Scan recursively", this);
-    recursiveCheck_->setChecked(true);
-    layout->addWidget(recursiveCheck_);
-
-    // Progress
-    progressBar_ = new QProgressBar(this);
-    layout->addWidget(progressBar_);
-
-    // Buttons
-    auto* buttonLayout = new QHBoxLayout();
-    scanButton_ = new QPushButton("Start Scan", this);
-    cancelButton_ = new QPushButton("Cancel", this);
-    cancelButton_->setEnabled(false);
-    buttonLayout->addWidget(scanButton_);
-    buttonLayout->addWidget(cancelButton_);
-    layout->addLayout(buttonLayout);
-
-    // Results
-    resultsEdit_ = new QTextEdit(this);
-    resultsEdit_->setReadOnly(true);
-    layout->addWidget(resultsEdit_);
-
+    // Set up tree view
+    treeView_->setModel(model_);
+    treeView_->setAlternatingRowColors(true);
+    treeView_->setSortingEnabled(true);
+    treeView_->setAnimated(true);
+    treeView_->setIndentation(20);
+    treeView_->setUniformRowHeights(true);
+    treeView_->setColumnWidth(0, 500);
+    treeView_->setColumnWidth(1, 50);
+    treeView_->setColumnWidth(2, 100);
+    
+    // Set window properties
     setWindowTitle("Dedupe++");
     resize(800, 600);
 }
 
-void MainWindow::createConnections() {
-    connect(browseButton_, &QPushButton::clicked, this, &MainWindow::browseDirectory);
-    connect(scanButton_, &QPushButton::clicked, this, &MainWindow::startScan);
-    connect(cancelButton_, &QPushButton::clicked, this, &MainWindow::cancelScan);
-}
-
-void MainWindow::browseDirectory() {
-    QString dir = QFileDialog::getExistingDirectory(this, "Select Directory",
-                                                  directoryEdit_->text(),
-                                                  QFileDialog::ShowDirsOnly);
-    if (!dir.isEmpty()) {
-        directoryEdit_->setText(dir);
-    }
-}
-
-void MainWindow::startScan() {
-    if (directoryEdit_->text().isEmpty()) {
-        QMessageBox::warning(this, "Error", "Please select a directory first.");
-        return;
-    }
-
-    isScanning_ = true;
-    scanButton_->setEnabled(false);
-    cancelButton_->setEnabled(true);
-    resultsEdit_->clear();
-    progressBar_->setValue(0);
-
-    scanner_ = std::make_unique<dedupe::ScannerImpl>(recursiveCheck_->isChecked());
-
-    // Start scanning in a separate thread
-    QFuture<std::vector<dedupe::DuplicateGroup>> future = QtConcurrent::run(
-        [this](const QString& dir, dedupe::IScanner* scanner) {
-            return scanner->scan_directory(
-                dir.toStdWString(),
-                [this](const std::string& msg, double progress) {
-                    QMetaObject::invokeMethod(this, "updateProgress",
-                        Qt::QueuedConnection,
-                        Q_ARG(QString, QString::fromStdString(msg)),
-                        Q_ARG(double, progress));
-                },
-                [this]() { return !isScanning_; }
-            );
-        },
-        directoryEdit_->text(),
-        scanner_.get()
-    );
-
-    // Handle completion
-    QFutureWatcher<std::vector<dedupe::DuplicateGroup>>* watcher = 
-        new QFutureWatcher<std::vector<dedupe::DuplicateGroup>>(this);
-    watcher->setFuture(future);
-    connect(watcher, &QFutureWatcher<std::vector<dedupe::DuplicateGroup>>::finished,
-            this, [this, watcher]() {
-        scanCompleted(watcher->result());
-        watcher->deleteLater();
-    });
-}
-
-void MainWindow::cancelScan() {
-    isScanning_ = false;
-    scanButton_->setEnabled(true);
-    cancelButton_->setEnabled(false);
-}
-
-void MainWindow::updateProgress(const QString& message, double progress) {
-    progressBar_->setValue(static_cast<int>(progress * 100));
-    resultsEdit_->setText(message);
-}
-
-void MainWindow::scanCompleted(const std::vector<dedupe::DuplicateGroup>& duplicates) {
-    isScanning_ = false;
-    scanButton_->setEnabled(true);
-    cancelButton_->setEnabled(false);
-    progressBar_->setValue(100);
-
-    if (duplicates.empty()) {
-        resultsEdit_->append("\nNo duplicate files found.");
-        return;
-    }
-
-    resultsEdit_->append(QString("\nFound %1 groups of duplicate files:\n").arg(duplicates.size()));
+void MainWindow::setupUi()
+{
+    // Path selection layout
+    pathLayout_->addWidget(new QLabel("Directory:", this));
+    pathLayout_->addWidget(pathEdit_);
+    pathLayout_->addWidget(browseButton_);
+    pathLayout_->addWidget(scanButton_);
     
-    for (const auto& group : duplicates) {
-        resultsEdit_->append(QString("\nHash: %1").arg(QString::fromStdString(group.hash)));
-        for (const auto& file : group.files) {
-            resultsEdit_->append(QString("  %1").arg(QString::fromStdWString(file.wstring())));
-        }
+    // Main layout
+    mainLayout_->addLayout(pathLayout_);
+    mainLayout_->addWidget(treeView_);
+}
+
+void MainWindow::onBrowseClicked()
+{
+    QString dir = QFileDialog::getExistingDirectory(this, "Select Directory",
+                                                  currentPath_.isEmpty() ? QDir::homePath() : currentPath_,
+                                                  QFileDialog::ShowDirsOnly | QFileDialog::DontResolveSymlinks);
+    
+    if (!dir.isEmpty()) {
+        updatePath(dir);
     }
-} 
+}
+
+void MainWindow::onScanClicked()
+{
+    if (currentPath_.isEmpty()) {
+        QMessageBox::warning(this, "Warning", "Please select a directory first.");
+        return;
+    }
+    
+    try {
+            auto tree = FileSystemTree::buildFromPath(currentPath_.toStdString());
+        model_->setTree(tree);
+    }
+    catch (const std::exception& e) {
+        QMessageBox::critical(this, "Error", QString("Failed to scan directory: %1").arg(e.what()));
+    }
+}
+
+void MainWindow::onPathChanged(const QString& path)
+{
+    updatePath(path);
+}
+
+void MainWindow::updatePath(const QString& path)
+{
+    currentPath_ = path;
+    pathEdit_->setText(path);
+}
+
+} // namespace dedupe 

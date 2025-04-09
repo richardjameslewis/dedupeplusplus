@@ -1,39 +1,40 @@
 #pragma once
 
 #include <QMainWindow>
+#include <QTreeView>
 #include <QPushButton>
 #include <QLineEdit>
-#include <QProgressBar>
-#include <QTextEdit>
-#include <QCheckBox>
-#include <memory>
-#include "../interface/iscanner.hpp"
+#include <QVBoxLayout>
+#include <QHBoxLayout>
+#include <QLabel>
+#include "filesystem_model.hpp"
+
+namespace dedupe {
 
 class MainWindow : public QMainWindow {
     Q_OBJECT
 
 public:
-    explicit MainWindow(QWidget *parent = nullptr);
+    explicit MainWindow(QWidget* parent = nullptr);
 
 private slots:
-    void browseDirectory();
-    void startScan();
-    void cancelScan();
-    void updateProgress(const QString& message, double progress);
-    void scanCompleted(const std::vector<dedupe::DuplicateGroup>& duplicates);
+    void onBrowseClicked();
+    void onScanClicked();
+    void onPathChanged(const QString& path);
 
 private:
     void setupUi();
-    void createConnections();
+    void updatePath(const QString& path);
 
+    QWidget* centralWidget_;
+    QVBoxLayout* mainLayout_;
+    QHBoxLayout* pathLayout_;
+    QLineEdit* pathEdit_;
     QPushButton* browseButton_;
-    QLineEdit* directoryEdit_;
     QPushButton* scanButton_;
-    QPushButton* cancelButton_;
-    QProgressBar* progressBar_;
-    QTextEdit* resultsEdit_;
-    QCheckBox* recursiveCheck_;
-    
-    std::unique_ptr<dedupe::IScanner> scanner_;
-    bool isScanning_;
-}; 
+    QTreeView* treeView_;
+    FileSystemModel* model_;
+    QString currentPath_;
+};
+
+} // namespace dedupe 
