@@ -1,6 +1,8 @@
 #include <gtest/gtest.h>
 #include "../core/duplicate_finder.hpp"
 #include "../core/filesystem_tree.hpp"
+#include "../core/nested_tree.hpp"
+//#include "../core/progress.hpp"
 #include <string>
 #include <vector>
 #include <filesystem>
@@ -42,21 +44,12 @@ TEST_F(DuplicateFinderTest, FindDuplicates) {
     Progress progress;
     FileSystemTree tree = tree.buildFromPath(testDir, progress);
     
-    // Create a progress object
-    // dedupe::Progress progress(
-    //   [](const std::string& message, double progress) {
-    //        std::cout << "\r" << message << " [" 
-    //                << static_cast<int>(progress * 100) << "%]" << std::flush;
-    //         std::cout << std::endl;
-    //   },
-    //   nullptr
-    // );
-   
     // Find duplicates
-    auto duplicates = DuplicateFinder::findDuplicates(tree, progress);
+    auto duplicateFiles = DuplicateFinder::findDuplicates(tree, progress);
+    auto duplicates = DuplicateFinder::makeDuplicateMap(duplicateFiles, progress);
     
     // We should have three files in the duplicate map
-    EXPECT_EQ(duplicates.size(), 3);
+    EXPECT_EQ(duplicateFiles.size(), 3);
     
     // Check that all duplicate files have the same signature
     std::string firstHash;
@@ -156,9 +149,9 @@ TEST_F(DuplicateFinderTest, MultipleDuplicateGroups) {
     // Build the filesystem tree
     FileSystemTree tree = tree.buildFromPath(multiDupDir, progress);
     
-    
     // Find duplicates
-    auto duplicates = DuplicateFinder::findDuplicates(tree, progress);
+    auto duplicateFiles = DuplicateFinder::findDuplicates(tree, progress);
+    auto duplicates = DuplicateFinder::makeDuplicateMap(duplicateFiles, progress);
     
     // We should have four files in the duplicate map (2 files in each group)
     EXPECT_EQ(duplicates.size(), 4);
@@ -179,6 +172,68 @@ TEST_F(DuplicateFinderTest, MultipleDuplicateGroups) {
     
     // Clean up
     std::filesystem::remove_all(multiDupDir);
+}
+
+TEST_F(DuplicateFinderTest, MixedIdenticalAndUniqueFiles) {
+    // Create a directory structure with mixed identical and unique files
+    auto subDir = std::filesystem::temp_directory_path() / "dedupe_mixed_test";
+    auto mixedDir = subDir / "X";
+    std::filesystem::create_directories(mixedDir);
+    
+    // Create subdirectories A, B, and C
+    auto dirA = mixedDir / "A";
+    auto dirB = mixedDir / "B";
+    auto dirC = mixedDir / "C";
+    std::filesystem::create_directories(dirA);
+    std::filesystem::create_directories(dirB);
+    std::filesystem::create_directories(dirC);
+    
+    // Create two distinct files
+    std::ofstream(dirA / "file1.txt") << "content for file1";
+    std::ofstream(dirA / "file2.txt") << "content for file2";
+    
+    // Place one file in each of B and C
+    std::filesystem::copy_file(dirA / "file1.txt", dirB / "file.txt");
+    std::filesystem::copy_file(dirA / "file2.txt", dirC / "file.txt");
+    //std::ofstream(dirB / "file1.txt") << "content for file1";
+    //std::ofstream(dirC / "file2.txt") << "content for file2";
+    
+    // Create a progress object
+    Progress progress;
+    
+    // Build the filesystem tree
+    FileSystemTree tree = tree.buildFromPath(subDir, progress);
+    
+    // Find duplicates
+    auto duplicateFiles = DuplicateFinder::findDuplicates(tree, progress);
+    auto duplicates = DuplicateFinder::makeDuplicateMap(duplicateFiles, progress);
+    DuplicateFinder::decorateTree(tree, duplicates);
+    
+    // We should have four files in the duplicate map (2 files in each group)
+    EXPECT_EQ(duplicates.size(), 4);
+    
+    // Verify that the directory X is not marked as identical
+    // This is the key test - the root directory contains both identical and unique files
+    auto Xnode = tree.root()->children()[0];
+    EXPECT_FALSE(Xnode->data().isIdentical);
+    
+    // Verify that the subdirectories are correctly marked
+    auto nodeA = tree.findByPath(dirA);
+    auto nodeB = tree.findByPath(dirB);
+    auto nodeC = tree.findByPath(dirC);
+    
+    // Directory A contains both files but in different directories, so it should not be marked as identical
+    EXPECT_TRUE(nodeA->data().isDuplicate);
+    EXPECT_FALSE(nodeA->data().isIdentical);
+    
+    // Directories B and C each contain only one file, so they should be marked as identical
+    EXPECT_TRUE(nodeB->data().isDuplicate);
+    EXPECT_FALSE(nodeB->data().isIdentical);
+    EXPECT_TRUE(nodeC->data().isDuplicate);
+    EXPECT_FALSE(nodeC->data().isIdentical);
+
+    // Clean up
+    std::filesystem::remove_all(subDir);
 }
 
 } // namespace test

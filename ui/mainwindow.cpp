@@ -95,10 +95,14 @@ void MainWindow::onScanClicked()
             nullptr
         );
         
+        updateStatusMessage(QString::fromStdString("Scanning directory:" + currentPath_.toStdString()));
+
         auto tree = FileSystemTree::buildFromPath(currentPath_.toStdString(), progress);
-        auto duplicates = DuplicateFinder::findDuplicates(tree, progress);
+        auto duplicateFiles = DuplicateFinder::findDuplicates(tree, progress);
+        auto duplicates = DuplicateFinder::makeDuplicateMap(duplicateFiles, progress);
         DuplicateFinder::decorateTree(tree, duplicates);
         model_->setTree(tree);
+        model_->setDuplicates(duplicateFiles);
         
         // Update status bar with completion message
         updateStatusMessage("Scan completed successfully.");

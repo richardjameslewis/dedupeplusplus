@@ -3,6 +3,7 @@
 #include <QAbstractItemModel>
 #include <QIcon>
 #include "../core/filesystem_tree.hpp"
+#include "../core/duplicate_finder.hpp"
 #include <memory>
 
 namespace dedupe {
@@ -32,6 +33,7 @@ public:
 
     // Custom methods
     void setTree(const FileSystemTree& tree);
+    void setDuplicates(const DuplicateFilesMap &duplicates);
     void clear();
 
 private:
@@ -48,8 +50,12 @@ private:
     QString formatBoolean(bool value) const;
     QIcon createCompositeIcon(const QIcon& baseIcon, const QIcon& suffixIcon) const;
     QIcon createSuffixIcon(const QString& text) const;
-
+    
+    // Tooltip methods
+    QString getTooltipForNode(const NestedNode<FileSystemNode>* node) const;
+    
     std::unique_ptr<FileSystemTree> tree_;
+    std::unique_ptr<DuplicateFilesMap> duplicates_;
     static const QStringList columnHeaders_;
     
     // Icon members

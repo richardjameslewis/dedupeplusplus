@@ -120,7 +120,8 @@ QVariant FileSystemModel::data(const QModelIndex& index, int role) const
             return createCompositeIcon(baseIcon, duplicateSuffix_);
         }
         
-        return baseIcon;    }
+        return baseIcon;    
+    }
     else if (role == Qt::ForegroundRole) {
         if (index.column() == static_cast<int>(Column::Duplicate) && data.isDuplicate) {
             return QColor(Qt::red);
@@ -129,8 +130,55 @@ QVariant FileSystemModel::data(const QModelIndex& index, int role) const
             return QColor(Qt::green);
         }
     }
+    else if (role == Qt::ToolTipRole) {
+        return getTooltipForNode(node);
+    }
 
     return QVariant();
+}
+
+QString FileSystemModel::getTooltipForNode(const NestedNode<FileSystemNode>* node) const
+{
+    if (!node) return QString();
+    
+    const auto& data = node->data();
+    
+    if (data.isDirectory) {
+        QString tooltip = QString::fromStdString("Directory ");
+        if (node->data().isIdentical)
+            tooltip += "all duplicates ";
+        else if (node->data().isDuplicate)
+            tooltip += "containing duplicates ";
+        tooltip += QString::fromStdString(data.path.string());
+        return tooltip;
+    }
+
+    std::vector<std::string> duplicateFilenames { data.path.string() };
+    if(duplicates_ !=  nullptr) {
+        const auto& it = duplicates_->find(data.hash);
+        if(it != duplicates_->cend()) {
+            duplicateFilenames = it->second.files;
+        }
+    }
+    
+    if (duplicateFilenames.size() <= 1) {
+        return "File " + QString::fromStdString(data.path.string());
+    }
+    
+    // Format the tooltip with duplicate filenames
+    std::sort(duplicateFilenames.begin(), duplicateFilenames.end());
+    QString tooltip = QString::fromStdString("Duplicate files:\n");
+    size_t count = duplicateFilenames.size();
+    for (size_t i = 0; i < count; i++)
+    {
+        tooltip += QString::fromStdString(duplicateFilenames[i]);
+        if(i < count - 1) {
+            tooltip += "\n";
+        }
+    }
+    
+    
+    return tooltip;
 }
 
 QIcon FileSystemModel::createCompositeIcon(const QIcon& baseIcon, const QIcon& suffixIcon) const
@@ -190,6 +238,11 @@ void FileSystemModel::setTree(const FileSystemTree& tree)
     endResetModel();
 }
 
+void FileSystemModel::setDuplicates(const DuplicateFilesMap &duplicates)
+{
+    duplicates_ = std::make_unique<DuplicateFilesMap>(duplicates);
+}
+
 void FileSystemModel::clear()
 {
     beginResetModel();
@@ -222,7 +275,13 @@ QString FileSystemModel::formatSize(uintmax_t bytes) const
 QString FileSystemModel::formatHash(const std::string& hash) const
 {
     if (hash.empty()) return QString();
-    return QString::fromStdString(hash.substr(0, 8) + "...");
+    
+    // Format hash as a shortened version for display
+    if (hash.length() > 8) {
+        return QString::fromStdString(hash.substr(0, 8) + "...");
+    }
+    
+    return QString::fromStdString(hash);
 }
 
 QString FileSystemModel::formatBoolean(bool value) const
