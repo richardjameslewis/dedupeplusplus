@@ -7,6 +7,7 @@
 #include <QVBoxLayout>
 #include <QHBoxLayout>
 #include <QLabel>
+#include <QStatusBar>
 #include "filesystem_model.hpp"
 
 namespace dedupe {
@@ -21,11 +22,13 @@ private slots:
     void onBrowseClicked();
     void onScanClicked();
     void onPathChanged(const QString& path);
+    void updateStatusMessage(const QString& message);
 
 private:
     void setupUi();
     void updatePath(const QString& path);
-
+    void setIdentical(FileSystemNode& node);
+    
     QWidget* centralWidget_;
     QVBoxLayout* mainLayout_;
     QHBoxLayout* pathLayout_;
@@ -35,6 +38,7 @@ private:
     QTreeView* treeView_;
     FileSystemModel* model_;
     QString currentPath_;
+    QStatusBar* statusBar_;
 };
 
 } // namespace dedupe 

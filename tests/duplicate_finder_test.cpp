@@ -5,6 +5,7 @@
 #include <vector>
 #include <filesystem>
 #include <fstream>
+#include <unordered_map>
 
 namespace dedupe {
 namespace test {
@@ -38,36 +39,46 @@ protected:
 
 TEST_F(DuplicateFinderTest, FindDuplicates) {
     // Build the filesystem tree
-    FileSystemTree tree = tree.buildFromPath(testDir);
+    Progress progress;
+    FileSystemTree tree = tree.buildFromPath(testDir, progress);
     
     // Create a progress object
-    //Progress progress;
-    dedupe::Progress progress(
-      [](const std::string& message, double progress) {
-           std::cout << "\r" << message << " [" 
-                   << static_cast<int>(progress * 100) << "%]" << std::flush;
-            std::cout << std::endl;
-      },
-      nullptr
-    );
-
+    // dedupe::Progress progress(
+    //   [](const std::string& message, double progress) {
+    //        std::cout << "\r" << message << " [" 
+    //                << static_cast<int>(progress * 100) << "%]" << std::flush;
+    //         std::cout << std::endl;
+    //   },
+    //   nullptr
+    // );
    
     // Find duplicates
     auto duplicates = DuplicateFinder::findDuplicates(tree, progress);
     
-    // We should have one duplicate group with 3 files
-    EXPECT_EQ(duplicates.size(), 1);
+    // We should have three files in the duplicate map
+    EXPECT_EQ(duplicates.size(), 3);
     
-    // Check the duplicate group
-    const auto& group = duplicates[0];
-    EXPECT_EQ(group.size, 17); // "duplicate content" is 17 bytes
-    EXPECT_EQ(group.files.size(), 3);
+    // Check that all duplicate files have the same signature
+    std::string firstHash;
+    uintmax_t firstSize;
+    int firstCount;
+    bool foundFirst = false;
     
-    // Check that all files in the group have the same hash
-    std::string firstHash = group.files[0].hash;
-    for (const auto& file : group.files) {
-        EXPECT_EQ(file.hash, firstHash);
+    for (const auto& [path, signature] : duplicates) {
+        if (!foundFirst) {
+            firstHash = signature.hash;
+            firstSize = signature.size;
+            firstCount = signature.count;
+            foundFirst = true;
+        } else {
+            EXPECT_EQ(signature.hash, firstHash);
+            EXPECT_EQ(signature.size, firstSize);
+            EXPECT_EQ(signature.count, firstCount);
+        }
     }
+    
+    // Check that the count is correct (should be 3 for the duplicate content)
+    EXPECT_EQ(firstCount, 3);
     
     // Check that the files are the ones we expect
     std::vector<std::string> expectedFiles = {
@@ -76,9 +87,9 @@ TEST_F(DuplicateFinderTest, FindDuplicates) {
         "subdir/file4.txt"
     };
     
-    for (const auto& file : group.files) {
-        auto filename = file.path.filename().string();
-        if (file.path.parent_path().filename() == "subdir") {
+    for (const auto& [path, signature] : duplicates) {
+        auto filename = path.filename().string();
+        if (path.parent_path().filename() == "subdir") {
             filename = "subdir/" + filename;
         }
         EXPECT_TRUE(std::find(expectedFiles.begin(), expectedFiles.end(), filename) != expectedFiles.end());
@@ -92,16 +103,17 @@ TEST_F(DuplicateFinderTest, NoDuplicates) {
     
     std::ofstream(noDupDir / "file1.txt") << "unique content 1";
     std::ofstream(noDupDir / "file2.txt") << "unique content 2";
-    
-    // Build the filesystem tree
-    FileSystemTree tree = tree.buildFromPath(noDupDir);
-    
+
     // Create a progress object
     Progress progress;
+
+    // Build the filesystem tree
+    FileSystemTree tree = tree.buildFromPath(noDupDir, progress);
+    
     // Find duplicates
     auto duplicates = DuplicateFinder::findDuplicates(tree, progress);
     
-    // We should have no duplicate groups
+    // We should have no duplicates
     EXPECT_EQ(duplicates.size(), 0);
     
     // Clean up
@@ -109,19 +121,19 @@ TEST_F(DuplicateFinderTest, NoDuplicates) {
 }
 
 TEST_F(DuplicateFinderTest, Cancellation) {
-    // Build the filesystem tree
-    FileSystemTree tree = tree.buildFromPath(testDir);
-    
     // Create a progress object
     Progress progress;
-    
+
+    // Build the filesystem tree
+    FileSystemTree tree = tree.buildFromPath(testDir, progress);
+        
     // Create a cancellation function that cancels immediately
     auto shouldCancel = []() { return true; };
     
     // Find duplicates with cancellation
     auto duplicates = DuplicateFinder::findDuplicates(tree, progress, shouldCancel);
     
-    // We should have no duplicate groups due to cancellation
+    // We should have no duplicates due to cancellation
     EXPECT_EQ(duplicates.size(), 0);
 }
 
@@ -138,21 +150,31 @@ TEST_F(DuplicateFinderTest, MultipleDuplicateGroups) {
     std::ofstream(multiDupDir / "file3.txt") << "duplicate group 2";
     std::ofstream(multiDupDir / "file4.txt") << "duplicate group 2";
     
-    // Build the filesystem tree
-    FileSystemTree tree = tree.buildFromPath(multiDupDir);
-    
     // Create a progress object
     Progress progress;
+
+    // Build the filesystem tree
+    FileSystemTree tree = tree.buildFromPath(multiDupDir, progress);
+    
     
     // Find duplicates
     auto duplicates = DuplicateFinder::findDuplicates(tree, progress);
     
-    // We should have two duplicate groups
-    EXPECT_EQ(duplicates.size(), 2);
+    // We should have four files in the duplicate map (2 files in each group)
+    EXPECT_EQ(duplicates.size(), 4);
     
-    // Check that each group has the correct number of files
-    for (const auto& group : duplicates) {
-        EXPECT_EQ(group.files.size(), 2);
+    // Group the duplicates by their hash to verify we have two distinct groups
+    std::unordered_map<std::string, std::vector<std::filesystem::path>> hashGroups;
+    for (const auto& [path, signature] : duplicates) {
+        hashGroups[signature.hash].push_back(path);
+    }
+    
+    // We should have two distinct hash groups
+    EXPECT_EQ(hashGroups.size(), 2);
+    
+    // Each group should have exactly two files
+    for (const auto& [hash, files] : hashGroups) {
+        EXPECT_EQ(files.size(), 2);
     }
     
     // Clean up

@@ -1,6 +1,7 @@
 #pragma once
 
 #include "nested_tree.hpp"
+#include "progress.hpp"
 #include <filesystem>
 #include <string>
 #include <memory>
@@ -13,11 +14,15 @@ struct FileSystemNode {
     bool isDirectory;
     uintmax_t size;
     std::string hash;  // Empty for directories
+    bool isDuplicate;
+    bool isIdentical;
 
     FileSystemNode(const std::filesystem::path& p, bool isDir = false, uintmax_t s = 0)
         : path(p)
         , isDirectory(isDir)
         , size(s)
+        , isDuplicate(false)
+        , isIdentical(false)
     {}
 };
 
@@ -28,14 +33,14 @@ public:
 
     // Build a tree from a filesystem path
     static FileSystemTree buildFromPath(const std::filesystem::path& rootPath,
-                                      std::function<void(const std::filesystem::path&)> progressCallback = nullptr) {
+                                      Progress& progress) {
         FileSystemTree tree;
         auto root = std::make_shared<NestedNode<FileSystemNode>>(
             FileSystemNode(rootPath, std::filesystem::is_directory(rootPath))
         );
         
         if (std::filesystem::is_directory(rootPath)) {
-            buildDirectoryTree(root, rootPath, progressCallback);
+            buildDirectoryTree(root, rootPath, progress);
         } else {
             root->data().size = std::filesystem::file_size(rootPath);
         }
@@ -79,18 +84,16 @@ public:
 
 private:
     static void buildDirectoryTree(NodePtr& parent, const std::filesystem::path& dirPath,
-                                 std::function<void(const std::filesystem::path&)>& progressCallback) {
+                                 Progress& progress) {
         for (const auto& entry : std::filesystem::directory_iterator(dirPath)) {
-            if (progressCallback) {
-                progressCallback(entry.path());
-            }
+            progress.report("Scanning directory: " + entry.path().string(), 0.0);
 
             auto node = std::make_shared<NestedNode<FileSystemNode>>(
                 FileSystemNode(entry.path(), std::filesystem::is_directory(entry.path()))
             );
 
             if (std::filesystem::is_directory(entry.path())) {
-                buildDirectoryTree(node, entry.path(), progressCallback);
+                buildDirectoryTree(node, entry.path(), progress);
             } else {
                 node->data().size = std::filesystem::file_size(entry.path());
             }

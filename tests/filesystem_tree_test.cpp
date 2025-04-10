@@ -1,5 +1,6 @@
 #include <gtest/gtest.h>
 #include "../core/filesystem_tree.hpp"
+#include "../core/progress.hpp"
 #include <string>
 #include <vector>
 #include <filesystem>
@@ -36,7 +37,8 @@ protected:
 };
 
 TEST_F(FileSystemTreeTest, BuildFromPath) {
-    auto tree = FileSystemTree::buildFromPath(tempDir_);
+    Progress progress;
+    auto tree = FileSystemTree::buildFromPath(tempDir_, progress);
     EXPECT_TRUE(tree.root() != nullptr);
     EXPECT_EQ(tree.root()->data().path, tempDir_);
     EXPECT_TRUE(tree.root()->data().isDirectory);
@@ -47,7 +49,8 @@ TEST_F(FileSystemTreeTest, BuildFromPath) {
 }
 
 TEST_F(FileSystemTreeTest, FindByPath) {
-    auto tree = FileSystemTree::buildFromPath(tempDir_);
+    Progress progress;
+    auto tree = FileSystemTree::buildFromPath(tempDir_, progress);
     auto node = tree.findByPath(tempDir_ / "file1.txt");
     EXPECT_TRUE(node != nullptr);
     EXPECT_FALSE(node->data().isDirectory);
@@ -55,7 +58,8 @@ TEST_F(FileSystemTreeTest, FindByPath) {
 }
 
 TEST_F(FileSystemTreeTest, CalculateSubtreeSize) {
-    auto tree = FileSystemTree::buildFromPath(tempDir_);
+    Progress progress;
+    auto tree = FileSystemTree::buildFromPath(tempDir_, progress);
     auto root = tree.root();
     uintmax_t totalSize = tree.calculateSubtreeSize(root);
     EXPECT_GT(totalSize, 0);

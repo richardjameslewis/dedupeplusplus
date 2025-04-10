@@ -6,33 +6,28 @@
 #include <vector>
 #include <unordered_map>
 #include <memory>
+#include <filesystem>
 
 namespace dedupe {
 
-struct FileInfo {
-    std::filesystem::path path;
+struct DuplicateSignature {
     uintmax_t size;
     std::string hash;
+    int count;
     
-    FileInfo(const std::filesystem::path& p, uintmax_t s) 
-        : path(p), size(s), hash("") {}
-};
-
-struct DuplicateGroup {
-    uintmax_t size;
-    std::vector<FileInfo> files;
-    
-    DuplicateGroup(uintmax_t s) : size(s) {}
+    DuplicateSignature(uintmax_t s = 0, const std::string& h = "") 
+        : size(s), hash(h), count(1) {}
 };
 
 class DuplicateFinder {
+    using DuplicateMap = std::unordered_map<std::filesystem::path, DuplicateSignature>;
 public:
-    static std::vector<DuplicateGroup> findDuplicates(
+    static DuplicateMap findDuplicates(
         const FileSystemTree& tree,
         Progress& progress,
         const std::function<bool()>& shouldCancel = []() { return false; }
     ) {
-        std::vector<FileInfo> files;
+        std::vector<std::pair<std::filesystem::path, uintmax_t>> files;
         size_t totalFiles = 0;
         
         // First pass: count total files and collect file info
@@ -65,14 +60,14 @@ public:
         }
         
         // Group files by size
-        std::unordered_map<uintmax_t, std::vector<FileInfo>> sizeGroups;
-        for (auto& file : files) {
-            sizeGroups[file.size].push_back(std::move(file));
-            std::cout << "file: " << file.path << " size: " << file.size << std::endl;
+        std::unordered_map<uintmax_t, std::vector<std::filesystem::path>> sizeGroups;
+        for (const auto& [path, size] : files) {
+            sizeGroups[size].push_back(path);
         }
         
         // For each size group with more than one file, compute hashes and group by hash
-        std::vector<DuplicateGroup> duplicateGroups;
+        std::unordered_map<std::filesystem::path, DuplicateSignature> duplicateMap;
+        Hasher hasher;
         
         size_t filesToHash = 0;
         for (const auto& [size, fileGroup] : sizeGroups) {
@@ -84,42 +79,69 @@ public:
         progress.report("Computing file hashes...", 0.0);
         
         size_t filesHashed = 0;
-        for (auto& [size, fileGroup] : sizeGroups) {
+        for (const auto& [size, fileGroup] : sizeGroups) {
             if (shouldCancel() || progress.is_cancelled()) {
                 progress.report("Operation cancelled", 0.0);
-                return duplicateGroups;
+                return duplicateMap;
             }
             
             if (fileGroup.size() <= 1) continue;
             
             // Compute hashes for all files in the size group
-            std::unordered_map<std::string, std::vector<FileInfo>> hashGroups;
+            std::unordered_map<std::string, std::vector<std::filesystem::path>> hashGroups;
             
-            for (auto& file : fileGroup) {
+            for (const auto& path : fileGroup) {
                 if (shouldCancel() || progress.is_cancelled()) {
                     progress.report("Operation cancelled", 0.0);
-                    return duplicateGroups;
+                    return duplicateMap;
                 }
                 
-                file.hash = Hasher::hash_file(file.path, progress);
-                hashGroups[file.hash].push_back(file);
+                std::string hash = hasher.hash_file(path, progress);
+                hashGroups[hash].push_back(path);
                 filesHashed++;
                 progress.report("Computing file hashes...", 
                                static_cast<double>(filesHashed) / filesToHash);
             }
             
-            // Create duplicate groups for files with the same hash
-            for (auto& [hash, hashGroup] : hashGroups) {
+            // Add all files with the same hash to the duplicate map
+            for (const auto& [hash, hashGroup] : hashGroups) {
                 if (hashGroup.size() > 1) {
-                    DuplicateGroup group(size);
-                    group.files = std::move(hashGroup);
-                    duplicateGroups.push_back(std::move(group));
+                    // Create a signature for this group
+                    DuplicateSignature signature(size, hash);
+                    signature.count = hashGroup.size();
+                    
+                    // Add all files in the group to the map
+                    for (const auto& path : hashGroup) {
+                        duplicateMap[path] = signature;
+                    }
                 }
             }
         }
         
         progress.report("Duplicate search complete", 1.0);
-        return duplicateGroups;
+        return duplicateMap;
+    }
+
+    static void decorateTree(FileSystemTree& tree, const DuplicateMap& duplicates)
+    {
+        tree.depthFirstTraverse([&](const auto& node) {
+            auto &data = node->data();
+            if (data.isDirectory) {
+                data.isIdentical = node->children().size() != 0;
+            } 
+        });
+        tree.depthFirstTraverse([&](const auto& node) {
+            auto &data = node->data();
+            if (!data.isDirectory) {
+                data.isDuplicate = duplicates.find(data.path) != duplicates.end();
+                if(data.isDuplicate) {
+                    data.isIdentical = true;
+                    node->parent()->data().isDuplicate = true;
+                } else {
+                    node->parent()->data().isIdentical = false;
+                }
+            }
+        });
     }
 };
 

@@ -9,6 +9,8 @@
 #include <QFuture>
 #include <QtConcurrent>
 #include "../core/filesystem_tree.hpp"
+#include "../core/duplicate_finder.hpp"
+#include "../core/progress.hpp"
 
 namespace dedupe {
 
@@ -22,8 +24,10 @@ MainWindow::MainWindow(QWidget* parent)
     , scanButton_(new QPushButton("Scan", this))
     , treeView_(new QTreeView(this))
     , model_(new FileSystemModel(this))
+    , statusBar_(new QStatusBar(this))
 {
     setCentralWidget(centralWidget_);
+    setStatusBar(statusBar_);
     setupUi();
     
     // Connect signals
@@ -36,6 +40,8 @@ MainWindow::MainWindow(QWidget* parent)
     // Set up tree view
     treeView_->setModel(model_);
     treeView_->setAlternatingRowColors(true);
+    treeView_->setSelectionBehavior(QAbstractItemView::SelectRows);
+    treeView_->setSelectionMode(QAbstractItemView::SingleSelection);
     treeView_->setSortingEnabled(true);
     treeView_->setAnimated(true);
     treeView_->setIndentation(20);
@@ -43,7 +49,9 @@ MainWindow::MainWindow(QWidget* parent)
     treeView_->setColumnWidth(0, 500);
     treeView_->setColumnWidth(1, 50);
     treeView_->setColumnWidth(2, 100);
-    
+    treeView_->setColumnWidth(3, 100);  // Duplicate column
+    treeView_->setColumnWidth(4, 100);  // Identical column
+
     // Set window properties
     setWindowTitle("Dedupe++");
     resize(800, 600);
@@ -64,8 +72,7 @@ void MainWindow::setupUi()
 
 void MainWindow::onBrowseClicked()
 {
-    QString dir = QFileDialog::getExistingDirectory(this, "Select Directory",
-                                                  currentPath_.isEmpty() ? QDir::homePath() : currentPath_,
+    QString dir = QFileDialog::getExistingDirectory(this, "Select Directory", QString(),
                                                   QFileDialog::ShowDirsOnly | QFileDialog::DontResolveSymlinks);
     
     if (!dir.isEmpty()) {
@@ -81,11 +88,24 @@ void MainWindow::onScanClicked()
     }
     
     try {
-            auto tree = FileSystemTree::buildFromPath(currentPath_.toStdString());
+        Progress progress(
+            [this](const std::string& message, double progress) {
+                updateStatusMessage(QString::fromStdString(message));
+            },
+            nullptr
+        );
+        
+        auto tree = FileSystemTree::buildFromPath(currentPath_.toStdString(), progress);
+        auto duplicates = DuplicateFinder::findDuplicates(tree, progress);
+        DuplicateFinder::decorateTree(tree, duplicates);
         model_->setTree(tree);
+        
+        // Update status bar with completion message
+        updateStatusMessage("Scan completed successfully.");
     }
     catch (const std::exception& e) {
         QMessageBox::critical(this, "Error", QString("Failed to scan directory: %1").arg(e.what()));
+        updateStatusMessage("Scan failed: " + QString::fromStdString(e.what()));
     }
 }
 
@@ -98,6 +118,11 @@ void MainWindow::updatePath(const QString& path)
 {
     currentPath_ = path;
     pathEdit_->setText(path);
+}
+
+void MainWindow::updateStatusMessage(const QString& message)
+{
+    statusBar_->showMessage(message);
 }
 
 } // namespace dedupe 

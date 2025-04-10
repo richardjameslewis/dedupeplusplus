@@ -1,6 +1,7 @@
 #pragma once
 
 #include <QAbstractItemModel>
+#include <QIcon>
 #include "../core/filesystem_tree.hpp"
 #include <memory>
 
@@ -14,6 +15,8 @@ public:
         Name = 0,
         Size,
         Hash,
+        Duplicate,
+        Identical,
         ColumnCount
     };
 
@@ -42,9 +45,18 @@ private:
     NodeIndex getNodeIndex(const QModelIndex& index) const;
     QString formatSize(uintmax_t bytes) const;
     QString formatHash(const std::string& hash) const;
+    QString formatBoolean(bool value) const;
+    QIcon createCompositeIcon(const QIcon& baseIcon, const QIcon& suffixIcon) const;
+    QIcon createSuffixIcon(const QString& text) const;
 
     std::unique_ptr<FileSystemTree> tree_;
     static const QStringList columnHeaders_;
+    
+    // Icon members
+    QIcon baseFileIcon_;
+    QIcon baseFolderIcon_;
+    QIcon identicalSuffix_;
+    QIcon duplicateSuffix_;
 };
 
 } // namespace dedupe 

@@ -2,17 +2,28 @@
 #include <QFileIconProvider>
 #include <QIcon>
 #include <QDir>
+#include <QPainter>
+#include <QPixmap>
+#include <QFont>
 
 namespace dedupe {
 
 const QStringList FileSystemModel::columnHeaders_ = {
-    "Name", "Size", "Hash"
+    "Name", "Size", "Hash", "Duplicate", "Identical"
 };
 
 FileSystemModel::FileSystemModel(QObject* parent)
     : QAbstractItemModel(parent)
     , tree_(std::make_unique<FileSystemTree>())
 {
+ // Create base icons
+    static QFileIconProvider iconProvider;
+    baseFileIcon_ = iconProvider.icon(QFileIconProvider::File);
+    baseFolderIcon_ = iconProvider.icon(QFileIconProvider::Folder);
+    
+ // Create suffix icons programmatically
+    identicalSuffix_ = createSuffixIcon("=");
+    duplicateSuffix_ = createSuffixIcon("D");
 }
 
 QModelIndex FileSystemModel::index(int row, int column, const QModelIndex& parent) const
@@ -92,17 +103,77 @@ QVariant FileSystemModel::data(const QModelIndex& index, int role) const
                 return data.isDirectory ? QString() : formatSize(data.size);
             case Column::Hash:
                 return data.isDirectory ? QString() : formatHash(data.hash);
+            case Column::Duplicate:
+                return formatBoolean(data.isDuplicate);
+            case Column::Identical:
+                return formatBoolean(data.isIdentical);
             default:
                 return QVariant();
         }
     }
     else if (role == Qt::DecorationRole && index.column() == 0) {
-        static QFileIconProvider iconProvider;
-        return iconProvider.icon(data.isDirectory ? QFileIconProvider::Folder : QFileIconProvider::File);
+       QIcon baseIcon = data.isDirectory ? baseFolderIcon_ : baseFileIcon_;
+        
+        if (data.isIdentical) {
+            return createCompositeIcon(baseIcon, identicalSuffix_);
+        } else if (data.isDuplicate) {
+            return createCompositeIcon(baseIcon, duplicateSuffix_);
+        }
+        
+        return baseIcon;    }
+    else if (role == Qt::ForegroundRole) {
+        if (index.column() == static_cast<int>(Column::Duplicate) && data.isDuplicate) {
+            return QColor(Qt::red);
+        }
+        if (index.column() == static_cast<int>(Column::Identical) && data.isIdentical) {
+            return QColor(Qt::green);
+        }
     }
 
     return QVariant();
 }
+
+QIcon FileSystemModel::createCompositeIcon(const QIcon& baseIcon, const QIcon& suffixIcon) const
+{
+    QPixmap basePixmap = baseIcon.pixmap(16, 16);
+    QPixmap suffixPixmap = suffixIcon.pixmap(8, 8);
+    
+    QPixmap result(basePixmap.size());
+    result.fill(Qt::transparent);
+    
+    QPainter painter(&result);
+    painter.drawPixmap(0, 0, basePixmap);
+    painter.drawPixmap(basePixmap.width() - suffixPixmap.width(), 
+                      basePixmap.height() - suffixPixmap.height(), 
+                      suffixPixmap);
+    painter.end();
+    
+    return QIcon(result);
+}
+
+QIcon FileSystemModel::createSuffixIcon(const QString& text) const
+{
+    QPixmap pixmap(16, 16);
+    pixmap.fill(Qt::transparent);
+    
+    QPainter painter(&pixmap);
+    painter.setRenderHint(QPainter::Antialiasing);
+    
+    // Set up font
+    QFont font = painter.font();
+    auto fontSize = text == "=" ? 16 : 12;
+    font.setPointSize(fontSize);
+    font.setBold(true);
+    painter.setFont(font);
+    
+    // Draw text in white
+    painter.setPen(Qt::black);
+    painter.drawText(pixmap.rect(), Qt::AlignBottom, text);
+    
+    painter.end();
+    return QIcon(pixmap);
+}
+
 
 QVariant FileSystemModel::headerData(int section, Qt::Orientation orientation, int role) const
 {
@@ -152,6 +223,11 @@ QString FileSystemModel::formatHash(const std::string& hash) const
 {
     if (hash.empty()) return QString();
     return QString::fromStdString(hash.substr(0, 8) + "...");
+}
+
+QString FileSystemModel::formatBoolean(bool value) const
+{
+    return value ? "Yes" : "No";
 }
 
 } // namespace dedupe 
