@@ -91,6 +91,7 @@ void MainWindow::onScanClicked()
         Progress progress(
             [this](const std::string& message, double progress) {
                 updateStatusMessage(QString::fromStdString(message));
+                QCoreApplication::processEvents();
             },
             nullptr
         );

@@ -34,50 +34,52 @@ This will build both the CLI (`dedupe_cli`) and GUI (`dedupe_gui`) applications.
 ## Quick command reference
 Use Visual Studio Powershell from the Tools menu to set up tool paths for VS2022. These commands roughly in the order they were used.
 
+Original git create
 ```powershell
 git remote add origin https://github.com/richardjameslewis/dedupeplusplus.git
 ```
-Original git create
 
+Base cmake command
 ```powershell
  cmake .. -DCMAKE_TOOLCHAIN_FILE="C:\Program Files\Microsoft Visual Studio\2022\Community\VC\vcpkg\scripts\buildsystems\vcpkg.cmake" -DQt6_DIR="C:\Qt\6.8.3\msvc2022_64\lib\cmake\Qt6"
 ```
-Base cmake command
-
+Update packages using vcpkg
 ```powershell
   vcpkg install
 ```
-Update packages using vcpkg
-
+Install qt dlls and dependencies for exe
 ```powershell
  <<Qt Directory>>\windeployqt.exe "C:\Projects\dedupe++\build\Release\dedupe_gui.exe"
 ```
-Install qt dependencies to directory
-
+Build Debug only followed by build tests - choose one
 ```powershell
   cd build
   cmake --build . --config Debug
   cmake --build . --target dedupe_tests
 ```
-Build Debug only followed by build tests - choose one
-
+Run tests in gtest
 ```powershell
 ctest -C Debug --output-on-failure
 ```
-Run tests in gtest
-
+Run programs. Can be debugged and run from VS2022 too.
 ```powershell
 .\Debug\dedupe_gui.exe
 .\Debug\dedupe_cli.exe 'C:\TODO\Peel Sessions\'
 ```
-Run program. Can be debugged and run from VS2022 too.
 
 ### Bugs & TODO
 Identical directories need work. isIdentical isn't right.
-Run the worker on a thread, fix UI updates.
+               
+Run the worker on a thread, fix UI updates. - Fixed with QCoreApplication::processEvents() for now.
+
+Performance - can the algorithms be more efficient?
+
+Performance - are we efficient in our C++ implementation?
+
 Run hashing in parallel.
+
 Remove or improve command-line version.
-Performance???
+
 Elegance???
 
 ### Qt LGPL Compliance
