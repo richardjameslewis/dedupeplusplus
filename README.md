@@ -2,6 +2,8 @@
 
 A C++17 utility for finding duplicate files in directories. Available as both a command-line tool and a Qt-based GUI application.
 
+
+
 ## Features
 
 - Recursive directory scanning
@@ -68,11 +70,12 @@ Run programs. Can be debugged and run from VS2022 too.
 ```
 
 ### Bugs & TODO
-Identical directories need work. isIdentical isn't right.
-               
-Run the worker on a thread, fix UI updates. - Fixed with QCoreApplication::processEvents() for now.
+* Do a quick initial CRC check to reject 90% of duplicate files? - done
+* Actually use tree node template parameter and specialise the node type.
+  Can the duplicate finder become a specialised tree?
+* Remove hallucinations from Claude: dedupe_interface, cli?
+* Add logs and error handling
 
-Performance - can the algorithms be more efficient?
 
 Performance - are we efficient in our C++ implementation?
 
@@ -81,6 +84,12 @@ Run hashing in parallel.
 Remove or improve command-line version.
 
 Elegance???
+
+Identical directories need work. isIdentical isn't right - Fixed
+
+Run the worker on a thread, fix UI updates. - Fixed with QCoreApplication::processEvents() for now.
+
+Performance - can the algorithms be more efficient? - Better
 
 ### Qt LGPL Compliance
 

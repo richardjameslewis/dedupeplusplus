@@ -33,7 +33,7 @@ public:
 
     // Custom methods
     void setTree(const FileSystemTree& tree);
-    void setDuplicates(const DuplicateFilesMap &duplicates);
+    void setDuplicates(const HashToDuplicate &duplicates);
     void clear();
 
 private:
@@ -55,7 +55,7 @@ private:
     QString getTooltipForNode(const NestedNode<FileSystemNode>* node) const;
     
     std::unique_ptr<FileSystemTree> tree_;
-    std::unique_ptr<DuplicateFilesMap> duplicates_;
+    std::unique_ptr<HashToDuplicate> hashToDuplicate_;
     static const QStringList columnHeaders_;
     
     // Icon members

@@ -4,176 +4,204 @@
 #include "hasher.hpp"
 #include "progress.hpp"
 #include <vector>
+#include <algorithm>
+#include <set>
 #include <unordered_map>
 #include <memory>
 #include <filesystem>
+#include <iostream>
+#include <sstream>
 
 namespace dedupe {
+    // RJL TODO
+    using Hash = std::string;
+    using Path = std::filesystem::path;
 
 struct DuplicateSignature {
     uintmax_t size;
-    std::string hash;
-    int count;
+    Hash hash;
     
-    DuplicateSignature(uintmax_t s = 0, const std::string& h = "", int c = 1) 
-        : size(s), hash(h), count(c) {}
+    DuplicateSignature(uintmax_t s = 0, const Hash & h = "")
+        : size(s), hash(h) {}
 };
 
 struct DuplicateFiles {
-    std::vector<std::string> files;
+    std::vector<std::filesystem::path> paths;
     DuplicateSignature signature;
+
+    bool isIdentical() { return paths.size() > 1; }
 
     DuplicateFiles(uintmax_t s = 0, const std::string& h = "") : signature(s, h) {}
 };
 
-using DuplicateFilesMap = std::unordered_map<std::string, DuplicateFiles>;
+using HashToDuplicate = std::unordered_map<Hash, DuplicateFiles>;               // Owns DuplicateFiles
+
 
 class DuplicateFinder {
+    HashToDuplicate _hashToDuplicate;
+    const FileSystemTree& _tree;
+
 public:
     using DuplicateMap = std::unordered_map<std::filesystem::path, DuplicateSignature>;
 
-    //static DuplicateMap findDuplicates(
-    static DuplicateFilesMap findDuplicates(
-        const FileSystemTree& tree,
-        Progress& progress,
-        const std::function<bool()>& shouldCancel = []() { return false; }
+    DuplicateFinder(const FileSystemTree& t) : _tree(t) { }
+
+    HashToDuplicate hashToDuplicate() { return _hashToDuplicate; }
+
+    bool findDuplicates(
+        Progress& progress
     ) {
-        //std::vector<std::pair<std::filesystem::path, uintmax_t>> files;
-        //std::vector<NestedNode<FileSystemNode>&> nodes;
-        std::unordered_map<std::filesystem::path, NestedNode<FileSystemNode> *> nodes;
-        size_t totalFiles = 0;
-        
-        // First pass: count total files and collect file info
-        tree.breadthFirstTraverse([&](const auto& node) {
-            if (!node->data().isDirectory) {
-                totalFiles++;
-            }
-        });
+        size_t totalFiles = _tree.directoryCount + _tree.fileCount;
         
         progress.report("Collecting file information...", 0.0);
-        
-        // Second pass: collect files and their sizes
-        size_t filesCollected = 0;
-        tree.breadthFirstTraverse([&](const auto& node) {
-            if (shouldCancel() || progress.is_cancelled()) {
+
+        std::unordered_map<uintmax_t, std::vector<NestedNode<FileSystemNode> *>> sizeGroups;
+        _tree.depthFirstTraverse([&](const auto& node) {
+            const auto& data = node->data();
+            if (progress.is_cancelled()) {
                 progress.report("Operation cancelled", 0.0);
                 return;
             }
-            
-            if (!node->data().isDirectory) {
-                //files.emplace_back(node->data().path, node->data().size);
-                //nodes.emplace_back(node);
-                nodes[node->data().path] = node.get();
-                //nodes.insert(std::pair(node->data().path, *node));
-                filesCollected++;
-                progress.report("Collecting file information...", 
-                               static_cast<double>(filesCollected) / totalFiles);
+            if (!data.isDirectory) {
+                if (sizeGroups.find(data.size) == sizeGroups.end())
+                    sizeGroups[data.size] = std::vector<NestedNode<FileSystemNode> *>();
+                sizeGroups[data.size].push_back(node.get());
             }
         });
-        
-        if (shouldCancel() || progress.is_cancelled()) {
-            return {};
+
+        int possible = 0;
+        for (auto& [size, fileGroup] : sizeGroups) {
+            int count = fileGroup.size();
+            possible += count > 1 ? count : 0;
         }
-        
-        // Group files by size
-        std::unordered_map<uintmax_t, std::vector<std::filesystem::path>> sizeGroups;
-        //for (const auto& [path, size] : files) {
-        for (const auto& [path, node] : nodes) {
-            sizeGroups[node->data().size].push_back(path);
-        }
-        
+
         // For each size group with more than one file, compute hashes and group by hash
-        std::unordered_map<std::filesystem::path, DuplicateSignature> duplicateMap;
         Hasher hasher;
-        
+        int quickHashed = 0;
+        std::set<std::filesystem::path> hashFiles;
         size_t filesToHash = 0;
-        for (const auto& [size, fileGroup] : sizeGroups) {
+        for (auto& [size, fileGroup] : sizeGroups) {
+            if (progress.is_cancelled()) {
+                progress.report("Operation cancelled", 0.0);
+                return false;
+            }
             if (fileGroup.size() > 1) {
                 filesToHash += fileGroup.size();
+                std::set<Hash> unique{};
+                bool bFullHash = false;
+                for (auto f : fileGroup) {
+                    try {
+                        std::stringstream ss;
+                        ss << quickHashed << "/" << possible << "/" << (_tree.directoryCount + _tree.fileCount) << " Quick hash: " << f->data().path.filename().string();
+                        progress.report(ss.str(), 0.0);
+                        f->data().hash = hasher.hash_file(f->data().path, progress, true);
+                        if (unique.find(f->data().hash) != unique.end()) {
+                            // At least one quick hash is equal to another: bail & compute long hashes
+                            bFullHash = true;
+                            break;
+                        }
+                        else {
+                            // Not found: add to set
+                            unique.insert(f->data().hash);
+                        }
+                    }
+                    catch (const std::exception& e) {
+                        std::stringstream ss;
+                        ss << "Failed quick hashing " << size << " " << f->data().path.string() << " with " << e.what();
+                        progress.report(ss.str(), 0.0);
+                    }
+
+                }
+                if (bFullHash) {
+                    for (auto f : fileGroup) {
+                        // reset any hash set above
+                        f->data().hash = "";
+                        // and add these files to the list of those to get a full file hash
+                        hashFiles.emplace(f->data().path);
+                    }
+                }
+                else {
+                    quickHashed += fileGroup.size();
+                    possible -= fileGroup.size();
+                }
             }
+
         }
-        
+
         progress.report("Computing file hashes...", 0.0);
-        
-        size_t filesHashed = 0;
-        // Compute hashes for all files in the size group
-        //std::unordered_map<std::string, std::vector<std::filesystem::path>> hashGroups;
-        DuplicateFilesMap hashGroups;
-        for (const auto& [size, fileGroup] : sizeGroups) {
-            if (shouldCancel() || progress.is_cancelled()) {
-                progress.report("Operation cancelled", 0.0);
-                return hashGroups;  
-            }
-            
-            if (fileGroup.size() <= 1) continue;
-            
-            
-            for (const auto& path : fileGroup) {
-                if (shouldCancel() || progress.is_cancelled()) {
+        int soFar = 0;
+        int hashed = 0;
+        _tree.depthFirstTraverse([&](const auto& node) {
+            try {
+                if (progress.is_cancelled()) {
                     progress.report("Operation cancelled", 0.0);
-                    //return duplicateMap;
-                    return hashGroups;
+                    return;
                 }
-                
-                std::string hash = hasher.hash_file(path, progress);
-                if(hashGroups.find(hash) == hashGroups.end()) {
-                    hashGroups[hash] = DuplicateFiles(size, hash);
+                auto& data = node->data();
+                if (data.isDirectory) {
+                    std::vector<std::string> hashes;
+                    for (auto child : node->children()) {
+                        hashes.push_back(child->data().hash);
+                    }
+                    std::sort(hashes.begin(), hashes.end());
+                    std::string signature = "";
+                    for (auto h : hashes) {
+                        signature += (signature != "" ? ", " : "") + h;
+                    }
+                    data.size = node->children().size();
+                    data.hash = Hasher::hash_string(signature, progress);
                 }
-                // Hack - now we have a hash update the node
-                nodes[path]->data().hash = hash;
-                hashGroups[hash].files.push_back(path.string());
-                filesHashed++;
-                progress.report("Computing file hashes...", 
-                               static_cast<double>(filesHashed) / filesToHash);
+                else {
+                    if (hashFiles.find(data.path) != hashFiles.end()) {
+                        // Hash whole file
+                        std::stringstream ss;
+                        ss << hashed << "/" << soFar << "/" << (_tree.directoryCount + _tree.fileCount) << " Hashing: " << data.path.filename().string() << " ";
+                        progress.report(ss.str(), 50.0);
+                        data.hash = hasher.hash_file(data.path, progress);
+                        ++hashed;
+                    }
+                    else {
+                        // If an existing hash doesn't exist fake a hash from the file size
+                        if(data.hash == "")
+                            data.hash = Hasher::fake_size_hash(data.size);
+                    }
+                }
+                if (_hashToDuplicate.find(data.hash) == _hashToDuplicate.end()) {
+                    _hashToDuplicate[data.hash] = DuplicateFiles(data.size, data.hash);
+                }
+                _hashToDuplicate[data.hash].paths.push_back(data.path);
+                ++soFar;
             }
-        }
-        return hashGroups;
-    }
-
-    static DuplicateMap makeDuplicateMap(const DuplicateFilesMap& hashGroups, Progress& progress) {
-        DuplicateMap duplicateMap;
-        // Add all files with the same hash to the duplicate map
-        for (const auto& [hash, hashGroup] : hashGroups) {
-            if (hashGroup.files.size() > 1) {
-                // Create a signature for this group
-                //DuplicateSignature signature(size, hash);
-                //signature.count = hashGroup.files.size();
-                
-                // Add all files in the group to the map
-                for (const auto& path : hashGroup.files) {
-                    duplicateMap[path] = hashGroup.signature;
-                }
-            }
-        }
-        
-        progress.report("Duplicate search complete", 1.0);
-        return duplicateMap;
-    }
-
-    static void decorateTree(FileSystemTree& tree, const DuplicateMap& duplicates)
-    {
-        tree.depthFirstTraverse([&](const auto& node) {
-            auto &data = node->data();
-            if (data.isDirectory) {
-                data.isIdentical = node->children().size() != 0;
-            } 
-        });
-        tree.depthFirstTraverse([&](const auto& node) {
-            auto &data = node->data();
-            if (!data.isDirectory) {
-                data.isDuplicate = duplicates.find(data.path) != duplicates.end();
-                if(data.isDuplicate) {
-                    data.isIdentical = true;
-                    node->parent()->data().isDuplicate = true;
-                } else {
-                    node->parent()->data().isIdentical = false;
-                }
-            } else {
-                auto parent = node->parent();
-                if (!data.isIdentical && parent != nullptr)
-                    parent->data().isIdentical = false;
+            catch (const std::exception& e) {
+                std::stringstream ss;
+                ss << "Failed when hashing " << node->data().path << " with " << e.what();
+                progress.report(ss.str(), 50.0);
             }
         });
+
+
+        _tree.depthFirstTraverse([&](const auto& node) {
+            if (progress.is_cancelled()) {
+                progress.report("Operation cancelled", 0.0);
+                return;
+            }
+            auto& data = node->data();
+            auto& dupe = _hashToDuplicate[data.hash];
+            data.isIdentical = dupe.isIdentical();
+            if (data.isDirectory && !data.isIdentical) {
+                data.isDuplicate = false;
+                for (auto& c : node->children()) {
+                    if (c->data().isDuplicate) {
+                        data.isDuplicate = true;
+                        break;
+                    }
+                }
+            }
+            else {
+                data.isDuplicate = data.isIdentical;
+            }
+        });
+        return true;
     }
 };
 

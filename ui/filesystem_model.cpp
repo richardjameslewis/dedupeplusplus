@@ -140,44 +140,49 @@ QVariant FileSystemModel::data(const QModelIndex& index, int role) const
 QString FileSystemModel::getTooltipForNode(const NestedNode<FileSystemNode>* node) const
 {
     if (!node) return QString();
-    
+
+    QString tooltip = QString();
     const auto& data = node->data();
-    
-    if (data.isDirectory) {
-        QString tooltip = QString::fromStdString("Directory ");
-        if (node->data().isIdentical)
-            tooltip += "all duplicates ";
-        else if (node->data().isDuplicate)
-            tooltip += "containing duplicates ";
-        tooltip += QString::fromStdString(data.path.string());
+
+    if (!data.isIdentical) {
+        if (data.isDirectory) {
+            tooltip += "Directory";
+            if (data.isDuplicate)
+                tooltip += " containing duplicates";
+        }
+        else {
+            tooltip += "File";
+        }
+        tooltip += ":\n" + QString::fromStdString(data.path.string());
         return tooltip;
     }
 
-    std::vector<std::string> duplicateFilenames { data.path.string() };
-    if(duplicates_ !=  nullptr) {
-        const auto& it = duplicates_->find(data.hash);
-        if(it != duplicates_->cend()) {
-            duplicateFilenames = it->second.files;
+    tooltip += data.isDirectory ? "Identical directory:" : "Duplicate file:";
+    tooltip += "\n" + QString::fromStdString(data.path.string());
+
+    std::vector<std::string> duplicateFilenames{ };
+    if (hashToDuplicate_ != nullptr) {
+        auto it = hashToDuplicate_->find(data.hash);
+        if (it != hashToDuplicate_->end()) {
+            duplicateFilenames.clear();
+            for (auto p : it->second.paths) {
+                if (p != data.path)
+                    duplicateFilenames.push_back(p.string());
+            }
+        }
+
+        tooltip += "\n";
+        // Format the tooltip with duplicate filenames
+        std::sort(duplicateFilenames.begin(), duplicateFilenames.end());
+        tooltip += "Copies:\n";
+        size_t count = duplicateFilenames.size();
+        for (size_t i = 0; i < count; i++) {
+            tooltip += QString::fromStdString(duplicateFilenames[i]);
+            if (i < count - 1) {
+                tooltip += "\n";
+            }
         }
     }
-    
-    if (duplicateFilenames.size() <= 1) {
-        return "File " + QString::fromStdString(data.path.string());
-    }
-    
-    // Format the tooltip with duplicate filenames
-    std::sort(duplicateFilenames.begin(), duplicateFilenames.end());
-    QString tooltip = QString::fromStdString("Duplicate files:\n");
-    size_t count = duplicateFilenames.size();
-    for (size_t i = 0; i < count; i++)
-    {
-        tooltip += QString::fromStdString(duplicateFilenames[i]);
-        if(i < count - 1) {
-            tooltip += "\n";
-        }
-    }
-    
-    
     return tooltip;
 }
 
@@ -238,9 +243,9 @@ void FileSystemModel::setTree(const FileSystemTree& tree)
     endResetModel();
 }
 
-void FileSystemModel::setDuplicates(const DuplicateFilesMap &duplicates)
+void FileSystemModel::setDuplicates(const HashToDuplicate& duplicates)
 {
-    duplicates_ = std::make_unique<DuplicateFilesMap>(duplicates);
+    hashToDuplicate_ = std::make_unique<HashToDuplicate>(duplicates);
 }
 
 void FileSystemModel::clear()

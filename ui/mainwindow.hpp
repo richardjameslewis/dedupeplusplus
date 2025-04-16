@@ -27,7 +27,7 @@ private slots:
 private:
     void setupUi();
     void updatePath(const QString& path);
-    void setIdentical(FileSystemNode& node);
+    /*void setIdentical(FileSystemNode& node);*/
     
     QWidget* centralWidget_;
     QVBoxLayout* mainLayout_;
@@ -37,6 +37,7 @@ private:
     QPushButton* scanButton_;
     QTreeView* treeView_;
     FileSystemModel* model_;
+    DuplicateFinder* duplicateFinder_;
     QString currentPath_;
     QStatusBar* statusBar_;
 };

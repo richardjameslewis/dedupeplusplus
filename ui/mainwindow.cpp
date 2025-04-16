@@ -8,6 +8,7 @@
 #include <QThread>
 #include <QFuture>
 #include <QtConcurrent>
+#include <sstream>
 #include "../core/filesystem_tree.hpp"
 #include "../core/duplicate_finder.hpp"
 #include "../core/progress.hpp"
@@ -47,10 +48,10 @@ MainWindow::MainWindow(QWidget* parent)
     treeView_->setIndentation(20);
     treeView_->setUniformRowHeights(true);
     treeView_->setColumnWidth(0, 500);
-    treeView_->setColumnWidth(1, 50);
-    treeView_->setColumnWidth(2, 100);
-    treeView_->setColumnWidth(3, 100);  // Duplicate column
-    treeView_->setColumnWidth(4, 100);  // Identical column
+    treeView_->setColumnWidth(1, 80);
+    treeView_->setColumnWidth(2, 70);
+    treeView_->setColumnWidth(3, 70);  // Duplicate column
+    treeView_->setColumnWidth(4, 70);  // Identical column
 
     // Set window properties
     setWindowTitle("Dedupe++");
@@ -99,14 +100,20 @@ void MainWindow::onScanClicked()
         updateStatusMessage(QString::fromStdString("Scanning directory:" + currentPath_.toStdString()));
 
         auto tree = FileSystemTree::buildFromPath(currentPath_.toStdString(), progress);
-        auto duplicateFiles = DuplicateFinder::findDuplicates(tree, progress);
-        auto duplicates = DuplicateFinder::makeDuplicateMap(duplicateFiles, progress);
-        DuplicateFinder::decorateTree(tree, duplicates);
+        duplicateFinder_ = new DuplicateFinder(tree);
+        duplicateFinder_->findDuplicates(progress);
         model_->setTree(tree);
-        model_->setDuplicates(duplicateFiles);
+        model_->setDuplicates(duplicateFinder_->hashToDuplicate());
         
+        int duplicates = 0;
+        for (auto& [hash, dup] : duplicateFinder_->hashToDuplicate())
+            if(dup.paths.size() > 1)
+                duplicates += dup.paths.size();
+
         // Update status bar with completion message
-        updateStatusMessage("Scan completed successfully.");
+        std::stringstream ss;
+        ss << "Scan completed, " << tree.fileCount << " files " << tree.directoryCount << " directories " << duplicates << " duplicates " << tree.errors << " file errors";
+        updateStatusMessage(QString::fromStdString(ss.str()));
     }
     catch (const std::exception& e) {
         QMessageBox::critical(this, "Error", QString("Failed to scan directory: %1").arg(e.what()));

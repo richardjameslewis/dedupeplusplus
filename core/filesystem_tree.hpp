@@ -4,18 +4,22 @@
 #include "progress.hpp"
 #include <filesystem>
 #include <string>
+#include <sstream>
 #include <memory>
 #include <functional>
 
 namespace dedupe {
 
 struct FileSystemNode {
+    // All
     std::filesystem::path path;
     bool isDirectory;
-    uintmax_t size;
-    std::string hash;  // Empty for directories
     bool isDuplicate;
     bool isIdentical;
+    uintmax_t size;
+
+    // Files
+    std::string hash;  // Empty for directories
 
     FileSystemNode(const std::filesystem::path& p, bool isDir = false, uintmax_t s = 0)
         : path(p)
@@ -23,6 +27,7 @@ struct FileSystemNode {
         , size(s)
         , isDuplicate(false)
         , isIdentical(false)
+        , hash("")
     {}
 };
 
@@ -31,17 +36,25 @@ public:
     using NodePtr = typename NestedTree<FileSystemNode>::NodePtr;
     using Visitor = typename NestedTree<FileSystemNode>::Visitor;
 
+    static int errors;
+    static int directoryCount;
+    static int fileCount;
+
     // Build a tree from a filesystem path
     static FileSystemTree buildFromPath(const std::filesystem::path& rootPath,
                                       Progress& progress) {
         FileSystemTree tree;
+        errors = 0;
+        directoryCount = fileCount = 0;
         auto root = std::make_shared<NestedNode<FileSystemNode>>(
             FileSystemNode(rootPath, std::filesystem::is_directory(rootPath))
         );
         
         if (std::filesystem::is_directory(rootPath)) {
+            ++directoryCount;
             buildDirectoryTree(root, rootPath, progress);
         } else {
+            ++fileCount;
             root->data().size = std::filesystem::file_size(rootPath);
         }
         
@@ -86,19 +99,33 @@ private:
     static void buildDirectoryTree(NodePtr& parent, const std::filesystem::path& dirPath,
                                  Progress& progress) {
         for (const auto& entry : std::filesystem::directory_iterator(dirPath)) {
-            progress.report("Scanning directory: " + entry.path().string(), 0.0);
+            try {
+                int count = FileSystemTree::directoryCount + FileSystemTree::fileCount;
+                std::stringstream ss;
+                ss << count << " Scanning directory: " << entry.path().string();
+                progress.report(ss.str(), 0.0);
 
-            auto node = std::make_shared<NestedNode<FileSystemNode>>(
-                FileSystemNode(entry.path(), std::filesystem::is_directory(entry.path()))
-            );
+                auto node = std::make_shared<NestedNode<FileSystemNode>>(
+                    FileSystemNode(entry.path(), std::filesystem::is_directory(entry.path()))
+                );
 
-            if (std::filesystem::is_directory(entry.path())) {
-                buildDirectoryTree(node, entry.path(), progress);
-            } else {
-                node->data().size = std::filesystem::file_size(entry.path());
+                if (std::filesystem::is_directory(entry.path())) {
+                    ++directoryCount;
+                    buildDirectoryTree(node, entry.path(), progress);
+                } else {
+                    ++fileCount;
+                    node->data().size = std::filesystem::file_size(entry.path());
+                }
+
+                parent->addChild(node);
             }
-
-            parent->addChild(node);
+            catch (const std::exception& e) {
+                //std::cout << "Failed when scanning " << dirPath << " with " << e.what();
+                //progress.report("Failed when scanning " + entry.path().string() + " with " + e.what(), 50.0);
+                progress.report("Failed when scanning ", 50.0);
+                //throw e;
+                ++errors;
+            }
         }
     }
 };

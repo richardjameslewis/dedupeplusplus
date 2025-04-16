@@ -1,13 +1,19 @@
 #include <gtest/gtest.h>
 #include "../core/nested_tree.hpp"
+#include "filesystem_tree.hpp"
 #include <string>
 #include <vector>
 #include <iostream>
 
 namespace dedupe {
+
+int dedupe::FileSystemTree::errors = 0;
+int dedupe::FileSystemTree::directoryCount = 0;
+int dedupe::FileSystemTree::fileCount = 0;
+   
 namespace test {
 
-// Test data structure for basic tree tests
+    // Test data structure for basic tree tests
 struct TestNode {
     int value;
     TestNode(int v) : value(v) {}
